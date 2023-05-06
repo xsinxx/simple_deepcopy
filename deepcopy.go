@@ -7,18 +7,17 @@
 package deepcopy
 
 import (
+	"github.com/bitly/go-simplejson"
 	"reflect"
 	"time"
 )
 
-// Interface for delegating copy process to type
-type Interface interface {
-	DeepCopy() interface{}
-}
+var simpleJsonType reflect.Type
 
-// Iface is an alias to Copy; this exists for backwards compatibility reasons.
-func Iface(iface interface{}) interface{} {
-	return Copy(iface)
+func init() {
+	var tmp simplejson.Json
+	t1 := reflect.ValueOf(tmp)
+	simpleJsonType = t1.Type()
 }
 
 // Copy creates a deep copy of whatever is passed to it and returns the copy
@@ -51,6 +50,15 @@ func copyRecursive(original, cpy reflect.Value) {
 			cpy.Set(reflect.ValueOf(copier.DeepCopy()))
 			return
 		}
+	}
+
+	if original.Type() == simpleJsonType {
+		sjOrigin := original.Interface().(simplejson.Json)
+		dataOriginal := Copy(sjOrigin.Interface())
+		sj := simplejson.New()
+		sj.SetPath([]string{}, dataOriginal)
+		cpy.Set(reflect.ValueOf(*sj))
+		return
 	}
 
 	// handle according to original's Kind
@@ -87,9 +95,7 @@ func copyRecursive(original, cpy reflect.Value) {
 		}
 		// Go through each field of the struct and copy it.
 		for i := 0; i < original.NumField(); i++ {
-			// The Type's StructField for a given field is checked to see if StructField.PkgPath
-			// is set to determine if the field is exported or not because CanSet() returns false
-			// for settable fields.  I'm not sure why.  -mohae
+			// private field need skip
 			if original.Type().Field(i).PkgPath != "" {
 				continue
 			}
@@ -115,6 +121,7 @@ func copyRecursive(original, cpy reflect.Value) {
 			originalValue := original.MapIndex(key)
 			copyValue := reflect.New(originalValue.Type()).Elem()
 			copyRecursive(originalValue, copyValue)
+			// always deep copy the map key
 			copyKey := Copy(key.Interface())
 			cpy.SetMapIndex(reflect.ValueOf(copyKey), copyValue)
 		}

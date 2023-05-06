@@ -1,7 +1,11 @@
 package deepcopy
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/bitly/go-simplejson"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/r3labs/diff"
 	"reflect"
 	"testing"
 	"time"
@@ -1083,10 +1087,6 @@ func TestIssue9(t *testing.T) {
 	}
 }
 
-type I struct {
-	A string
-}
-
 func (i *I) DeepCopy() interface{} {
 	return &I{A: "custom copy"}
 }
@@ -1106,5 +1106,79 @@ func TestInterface(t *testing.T) {
 	copiedNest := Copy(ni).(*NestI)
 	if copiedNest.I.A != "custom copy" {
 		t.Errorf("expected value %v, but it's %v", "custom copy", copiedNest.I.A)
+	}
+}
+
+func DeepCopyByReflect(data1 interface{}) interface{} {
+	return Copy(data1).(PackData)
+
+}
+
+func DeepCopyByStdJSON(data1 interface{}) interface{} {
+	var buf []byte
+	var err error
+	var data2 PackData
+	if buf, err = json.Marshal(&data1); err != nil {
+		return nil
+	}
+	json.Unmarshal(buf, &data2)
+	return data2
+}
+
+func TestMain(m *testing.M) {
+	data1 := PackData{
+		a:        1,
+		b:        "2",
+		C:        []int{3, 4, 5},
+		LogExtra: simplejson.New(),
+	}
+
+	data2 := DeepCopyByReflect(data1).(PackData)
+	data3 := DeepCopyByStdJSON(data1).(PackData)
+
+	changelog, err := diff.Diff(data3, data2)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	for _, v := range changelog {
+		if v.To != v.From {
+			spew.Printf("path: %#v\n from: %#v\n to: %#v\n ", v.Path, v.From, v.To)
+		}
+	}
+
+	m.Run()
+}
+
+func TestSimpleJson(t *testing.T) {
+	sjp := simplejson.New()
+	sjP := simplejson.New()
+	sjp.Set("test", "test")
+	sjP.Set("test", "test")
+	i := &SJ{
+		Sjp: sjp,
+		Sj:  *sjP,
+		I: &I{
+			A: "string",
+		},
+	}
+	copied := Copy(i).(*SJ)
+	sjp.Set("test", "123")
+	sjP.Set("test", "123")
+	i.I.A = "s"
+	if copied.Sjp.Get("test").MustString() != "test" {
+		t.Errorf("expected value %v, but it's %v", "test", copied.Sjp.Get("test").MustString())
+	}
+	if copied.Sj.Get("test").MustString() != "test" {
+		t.Errorf("expected value %v, but it's %v", "test", copied.Sj.Get("test").MustString())
+	}
+	if i.Sjp.Get("test").MustString() != "123" {
+		t.Errorf("expected value %v, but it's %v", "123", i.Sjp.Get("test").MustString())
+	}
+	if i.Sj.Get("test").MustString() != "123" {
+		t.Errorf("expected value %v, but it's %v", "123", i.Sj.Get("test").MustString())
+	}
+	if i.I.A != "s" {
+		t.Errorf("expected value %v, but it's %v", "s", copied.I.A)
 	}
 }
